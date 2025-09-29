@@ -1486,6 +1486,7 @@ async def analyze_orchestrate(args):
         js_queue_filename = js_queue_file.name
         found_js_count = 0
 
+        # --- НАЧАЛО ГЛАВНОГО БЛОКА TRY ---
         try:
             # === ФАЗА 1: КРАУЛИНГ (с браузером, с записью в файл) ===
             print("\n--- Phase 1: Crawling for JS files ---")
@@ -1497,21 +1498,21 @@ async def analyze_orchestrate(args):
                 async with aiohttp.ClientSession(connector=connector) as session:
                     browser_handler, hybrid_fetcher = await init_balanced_hybrid_system(session, r, args.max_browser_concurrency)
                     
-                    js_temp_queue = asyncio.Queue()
+                    js_temp_queue = asyncio.Queue(maxsize=1000)
                     analyzed_js_in_cycle = set()
                     pbar_crawl = tqdm(total=len(base_urls), desc="Crawling URLs", unit="host", position=0)
 
-                    # Писатель, который асинхронно сохраняет найденные URL в файл
                     async def queue_to_file_writer():
                         nonlocal found_js_count
-                        while True:
-                            item = await js_temp_queue.get()
-                            if item is None:
+                        with open(js_queue_filename, 'a', encoding='utf-8') as f_queue:
+                            while True:
+                                item = await js_temp_queue.get()
+                                if item is None:
+                                    js_temp_queue.task_done()
+                                    break
+                                f_queue.write(json.dumps(item) + '\n')
+                                found_js_count += 1
                                 js_temp_queue.task_done()
-                                break
-                            js_queue_file.write(json.dumps(item) + '\n')
-                            found_js_count += 1
-                            js_temp_queue.task_done()
 
                     writer_task = asyncio.create_task(queue_to_file_writer())
 
@@ -1523,7 +1524,6 @@ async def analyze_orchestrate(args):
                     await asyncio.gather(*crawler_tasks)
                     pbar_crawl.close()
                     
-                    # Завершаем работу писателя
                     await js_temp_queue.join()
                     await js_temp_queue.put(None)
                     await writer_task
@@ -1532,7 +1532,7 @@ async def analyze_orchestrate(args):
                 if hybrid_fetcher and browser_handler:
                     await cleanup_balanced_system(browser_handler, hybrid_fetcher)
                 print(f"[+] Discovery phase complete. Found {found_js_count} JS files.")
-                js_queue_file.close() # Закрываем файл после записи
+                js_queue_file.close()
 
             # === ФАЗА 2: АНАЛИЗ (только aiohttp, чтение из файла) ===
             if found_js_count > 0:
@@ -1541,14 +1541,12 @@ async def analyze_orchestrate(args):
                 lock = asyncio.Lock()
                 file_lock = asyncio.Lock()
                 
-                # Создаем новую, легкую сессию только для анализа
                 analysis_semaphore = asyncio.Semaphore(args.threads * 4)
                 async with aiohttp.ClientSession() as analysis_session:
                     
                     pbar_analyze = tqdm(total=found_js_count, desc="Analyzing JS", unit="file", position=0)
                     analysis_queue = asyncio.Queue(maxsize=10000)
 
-                    # 1. Сначала запускаем воркеров-потребителей. Они сразу начнут ждать задач.
                     analyzer_tasks = []
                     for worker_id in range(args.threads):
                         task = asyncio.create_task(
@@ -1561,36 +1559,43 @@ async def analyze_orchestrate(args):
                         )
                         analyzer_tasks.append(task)
 
-                    # 2. Создаем и запускаем "наполнителя" очереди, который будет читать файл асинхронно.
                     async def queue_filler():
                         with open(js_queue_filename, 'r') as f:
                             for line in f:
                                 await analysis_queue.put(json.loads(line.strip()))
                     
                     filler_task = asyncio.create_task(queue_filler())
-
-                    # 3. Ждем, пока "наполнитель" не закончит читать весь файл и класть задачи в очередь.
                     await filler_task
-
-                    # 4. Ждем, пока воркеры не обработают все задачи, которые положил "наполнитель".
                     await analysis_queue.join()
 
-                    # 5. Теперь, когда все задачи обработаны, отправляем сигналы завершения.
                     for _ in range(args.threads):
                         await analysis_queue.put(None)
                     
-                    # 6. Ждем, пока все воркеры корректно завершат свою работу.
                     await asyncio.gather(*analyzer_tasks)
                     pbar_analyze.close()
 
                 print("[+] Analysis phase complete.")
                 print("\n--- Final Report Generation ---")
-                # ВАЖНО: Используем сессию от Фазы 1, т.к. analysis_session уже закрыта
-                # Этот код выполняется ВНЕ `async with aiohttp.ClientSession() as analysis_session`
-                # Поэтому нужно использовать сессию, которая еще жива (от Фазы 1). Но так как она тоже
-                # закрывается, создадим новую временную для отчета.
                 async with aiohttp.ClientSession() as report_session:
                     await generate_report_and_notify(all_new_findings_by_host, args, report_session, timing, header_manager)
+        
+        # --- ДОБАВЛЕН НУЖНЫЙ БЛОК FINALLY ---
+        finally:
+            if os.path.exists(js_queue_filename):
+                os.remove(js_queue_filename)
+            if endpoints_file: endpoints_file.close()
+            if new_endpoints_file: new_endpoints_file.close()
+            await r.close()
+
+        end_time = time.monotonic()
+        print(f"[+] Scan cycle {cycle_count} finished in {end_time - start_time:.2f} seconds.")
+
+        if not args.continuous:
+            print("\n[+] Single run complete. Exiting.")
+            break
+
+        print(f"\n[CONTINUOUS MODE] Waiting for {args.delay} seconds before the next run...")
+        await asyncio.sleep(args.delay)
 
 def build_parser():
     p = argparse.ArgumentParser(description="Production-ready JS Analyzer with batch processing and content deduplication.")
