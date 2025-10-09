@@ -1460,7 +1460,7 @@ async def fetch_js_only(
                         if new_last_modified:
                             pipe.hset(meta_key, 'last_modified', new_last_modified)
                         
-                        if pipe.commands:
+                        if pipe.command_stack:
                            pipe.expire(meta_key, 86400 * 30) # Храним метаданные 30 дней
                            await pipe.execute()
 
