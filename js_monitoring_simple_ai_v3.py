@@ -1898,7 +1898,7 @@ async def analyzer_worker_streaming(
 
 async def analyze_orchestrate(args):
     try:
-        r = redis.Redis(host=args.redis_host, port=args.redis_port, decode_responses=True)
+        r = redis.Redis(host=args.redis_host, port=args.redis_port)
         await r.ping()
         print(f"[+] Connected to Redis for state tracking.")
     except Exception as e:
@@ -2075,4 +2075,5 @@ def main():
     except KeyboardInterrupt: print("\n[!] Analysis interrupted by user.", file=sys.stderr)
 
 if __name__ == "__main__":
+
     main()
