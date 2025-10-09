@@ -1405,44 +1405,44 @@ async def fetch_js_only(
         meta_key = f"js_meta:{url_hash}"
 
         try:
-                    # Получаем сохраненные ETag и Last-Modified из Redis
-                    cached_meta = await r.hgetall(meta_key)
-                    if cached_meta:
-                        # Redis возвращает ключи и значения как БАЙТЫ, их нужно декодировать
-                        etag = cached_meta.get(b'etag')
-                        last_mod = cached_meta.get(b'last_modified')
-                        
-                        if etag:
-                            headers['If-None-Match'] = etag.decode('utf-8')
-                        if last_mod:
-                            headers['If-Modified-Since'] = last_mod.decode('utf-8')
-                except redis.RedisError as e:
-                    if args.debug:
-                        print(f"[DEBUG][Redis] Error getting meta for {url}: {e}")
-                    cached_meta = {}
+            # Получаем сохраненные ETag и Last-Modified из Redis
+            cached_meta = await r.hgetall(meta_key)
+            if cached_meta:
+                # Redis возвращает ключи и значения как БАЙТЫ, их нужно декодировать
+                etag = cached_meta.get(b'etag')
+                last_mod = cached_meta.get(b'last_modified')
+                
+                if etag:
+                    headers['If-None-Match'] = etag.decode('utf-8')
+                if last_mod:
+                    headers['If-Modified-Since'] = last_mod.decode('utf-8')
+        except redis.RedisError as e:
+            if args.debug:
+                print(f"[DEBUG][Redis] Error getting meta for {url}: {e}")
+            # cached_meta здесь не нужен, просто игнорируем ошибку
 
         try:
             async with session.get(url, headers=headers, timeout=NORMAL_TIMEOUT, ssl=False, allow_redirects=True) as resp:
                 
                 # --- ОБРАБОТКА ОТВЕТА СЕРВЕРА ---
                 if resp.status == 304:  # 304 Not Modified
-                                    if args.debug:
-                                        print(f"[DEBUG][HTTP 304] Content not changed for {url}. Skipping analysis.")
-                                    
-                                    # Важно! Продлеваем жизнь старого контента в Redis, чтобы он не исчез
-                                    canonical_url_for_hash = get_canonical_url(url)
-                                    url_hash_key_for_diff = f"js_diff_hash:{hashlib.md5(canonical_url_for_hash.encode('utf-8', 'ignore')).hexdigest()}"
-                                    
-                                    last_hash_bytes = await r.get(url_hash_key_for_diff)
-                                    if last_hash_bytes:
-                                        last_hash = last_hash_bytes.decode()
-                                        old_content_key = f"js_diff_body:{last_hash}"
-                                        # Продлеваем TTL для тела файла и для ключа с хешем
-                                        await r.expire(old_content_key, 86400 * 30)
-                                        await r.expire(url_hash_key_for_diff, 86400 * 30)
+                    if args.debug:
+                        print(f"[DEBUG][HTTP 304] Content not changed for {url}. Skipping analysis.")
+                    
+                    # Важно! Продлеваем жизнь старого контента в Redis, чтобы он не исчез
+                    canonical_url_for_hash = get_canonical_url(url)
+                    url_hash_key_for_diff = f"js_diff_hash:{hashlib.md5(canonical_url_for_hash.encode('utf-8', 'ignore')).hexdigest()}"
+                    
+                    last_hash_bytes = await r.get(url_hash_key_for_diff)
+                    if last_hash_bytes:
+                        last_hash = last_hash_bytes.decode()
+                        old_content_key = f"js_diff_body:{last_hash}"
+                        # Продлеваем TTL для тела файла и для ключа с хешем
+                        await r.expire(old_content_key, 86400 * 30)
+                        await r.expire(url_hash_key_for_diff, 86400 * 30)
 
-                                    # Возвращаем специальный флаг, чтобы воркер точно знал, что это 304
-                                    return None, False, "304_not_modified"
+                    # Возвращаем специальный флаг, чтобы воркер точно знал, что это 304
+                    return None, False, "304_not_modified"
 
                 if resp.status == 200:
                     content_type = resp.headers.get('Content-Type', '').lower()
