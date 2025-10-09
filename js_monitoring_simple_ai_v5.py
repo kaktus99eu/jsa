@@ -1878,23 +1878,20 @@ async def analyzer_worker_streaming(
                     old_content_key = f"js_diff_body:{last_content_hash}"
                     old_beautified_content_bytes = await r.get(old_content_key)
                     if old_beautified_content_bytes:
-                                        old_beautified_content = old_beautified_content_bytes.decode('utf-8', 'ignore')
-                                        diff = create_beautified_diff(old_beautified_content, beautified_content_new, js_url)
+                        old_beautified_content = old_beautified_content_bytes.decode('utf-8', 'ignore')
+                        diff = create_beautified_diff(old_beautified_content, beautified_content_new, js_url)
 
-                                        if diff.strip():
-                                            # === НАЧАЛО ФИКСА #1: ЛОГИРОВАНИЕ DIFF ===
-                                            if args.log_diffs:
-                                                try:
-                                                    with open(args.log_diffs, "a", encoding="utf-8") as f:
-                                                        f.write(f"\n--- DIFF FOR {js_url} ---\n")
-                                                        f.write(diff)
-                                                        f.write("\n--- END DIFF ---\n")
-                                                except Exception as log_e:
-                                                    print(f"\n[!] Failed to write to diff log file: {log_e}", file=sys.stderr)
-                                            # === КОНЕЦ ФИКСА #1 ===
-                                            
-                                            ai_result = await send_diff_to_ai(session, diff, js_url, args)
-                                            # ... остальная логика ...
+                        if diff.strip():
+                            if args.log_diffs:
+                                try:
+                                    with open(args.log_diffs, "a", encoding="utf-8") as f:
+                                        f.write(f"\n--- DIFF FOR {js_url} ---\n")
+                                        f.write(diff)
+                                        f.write("\n--- END DIFF ---\n")
+                                except Exception as log_e:
+                                    print(f"\n[!] Failed to write to diff log file: {log_e}", file=sys.stderr)
+                            
+                            ai_result = await send_diff_to_ai(session, diff, js_url, args)
                             if ai_result and ai_result.get("signals_found"):
                                 for signal in ai_result["signals_found"]:
                                     llm_analysis = signal.get("llm_analysis", {})
