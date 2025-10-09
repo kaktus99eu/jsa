@@ -22,6 +22,7 @@ import math
 import sys
 from playwright.async_api import async_playwright
 import difflib
+import traceback
 
 # [FIX] Подавляем все предупреждения, которые ломают вывод tqdm
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
@@ -39,7 +40,7 @@ CONCURRENT_REQUESTS = 5
 LARGE_FILE_THRESHOLD = 2_000_000  # 2MB threshold for large files
 LARGE_FILE_TIMEOUT = 90  # 90 seconds for large files
 NORMAL_TIMEOUT = 30  # 30 seconds for normal files
-AI_API_URL="http://localhost:8080"
+AI_API_URL="http://localhost:8080/analyze"
 AI_API_KEY="GPn4OnHcjdDRPVEu00HHBoRyU1PYN/3kgilKszC9fvs="
 
 SCRIPT_BLOCKLIST_DOMAINS = {
@@ -1468,9 +1469,12 @@ async def fetch_js_only(
                 return None, False, None
 
         except Exception as e:
-            if args.debug:
-                print(f"[JS_FETCHER_FAIL] Failed to get {url}: {type(e).__name__}")
-            return None, False, None
+                if args.debug:
+                    # Теперь мы выводим не только тип ошибки, но и полный traceback
+                    print(f"\n[JS_FETCHER_FAIL] Failed to get {url}: {type(e).__name__}")
+                    # Выводим traceback в stderr, чтобы он не мешал основному логу
+                    traceback.print_exc(file=sys.stderr)
+                return None, False, None
 
 def parser_file(content: str, args: argparse.Namespace):
     if not content: return []
