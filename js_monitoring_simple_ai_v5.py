@@ -1416,7 +1416,7 @@ async def fetch_js_only(
                     headers['If-None-Match'] = etag.decode('utf-8')
                 if last_mod:
                     headers['If-Modified-Since'] = last_mod.decode('utf-8')
-        except redis.RedisError as e:
+        except redis.RedisError as e:  # <--- Теперь except на уровне try (4 пробела перед ним)
             if args.debug:
                 print(f"[DEBUG][Redis] Error getting meta for {url}: {e}")
             # cached_meta здесь не нужен, просто игнорируем ошибку
