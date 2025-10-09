@@ -39,8 +39,8 @@ CONCURRENT_REQUESTS = 5
 LARGE_FILE_THRESHOLD = 2_000_000  # 2MB threshold for large files
 LARGE_FILE_TIMEOUT = 90  # 90 seconds for large files
 NORMAL_TIMEOUT = 30  # 30 seconds for normal files
-AI_API_URL=http://localhost:8080
-AI_API_KEY=GPn4OnHcjdDRPVEu00HHBoRyU1PYN/3kgilKszC9fvs=
+AI_API_URL="http://localhost:8080"
+AI_API_KEY="GPn4OnHcjdDRPVEu00HHBoRyU1PYN/3kgilKszC9fvs="
 
 SCRIPT_BLOCKLIST_DOMAINS = {
     "google-analytics.com", "googletagmanager.com", "connect.facebook.net",
@@ -2077,3 +2077,4 @@ def main():
 if __name__ == "__main__":
 
     main()
+
