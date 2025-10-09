@@ -94,11 +94,25 @@ def create_beautified_diff(old_code: str, new_code: str, filename: str) -> str:
 async def send_diff_to_ai(session, diff, file_path, args):
     """Отправляет diff на анализ в server.py."""
     headers = {'Authorization': f'Bearer {AI_SERVER_API_KEY}', 'Content-Type': 'application/json'}
-    payload = {'diff': diff, 'file_path': file_path}
+    # [ИЗМЕНЕНИЕ] Добавляем base_url в payload, так как server.py его ожидает
+    base_url = urlparse(file_path).scheme + "://" + urlparse(file_path).netloc
+    payload = {'diff': diff, 'file_path': file_path, 'base_url': base_url}
+
+    # === НАЧАЛО ФИКСА #2: ЛОГИРОВАНИЕ ВЫЗОВА LLM ===
+    if args.debug:
+        print(f"\n[DEBUG][LLM] Preparing to send diff for {file_path} to {AI_SERVER_URL}")
+    # === КОНЕЦ ФИКСА #2 ===
+    
     try:
         async with session.post(AI_SERVER_URL, json=payload, timeout=300) as resp:
             if resp.status == 200:
-                return await resp.json()
+                response_json = await resp.json()
+                # === НАЧАЛО ФИКСА #2: ЛОГИРОВАНИЕ ОТВЕТА LLM ===
+                if args.debug:
+                    summary = response_json.get('summary', 'No summary')
+                    print(f"[DEBUG][LLM] Received response for {file_path}: {summary}")
+                # === КОНЕЦ ФИКСА #2 ===
+                return response_json
             else:
                 error_text = await resp.text()
                 print(f"[!] AI_ERROR: Failed to analyze {file_path}. Status: {resp.status}, Body: {error_text[:200]}", file=sys.stderr)
@@ -1864,11 +1878,23 @@ async def analyzer_worker_streaming(
                     old_content_key = f"js_diff_body:{last_content_hash}"
                     old_beautified_content_bytes = await r.get(old_content_key)
                     if old_beautified_content_bytes:
-                        old_beautified_content = old_beautified_content_bytes.decode('utf-8', 'ignore')
-                        diff = create_beautified_diff(old_beautified_content, beautified_content_new, js_url)
+                                        old_beautified_content = old_beautified_content_bytes.decode('utf-8', 'ignore')
+                                        diff = create_beautified_diff(old_beautified_content, beautified_content_new, js_url)
 
-                        if diff.strip():
-                            ai_result = await send_diff_to_ai(session, diff, js_url, args)
+                                        if diff.strip():
+                                            # === НАЧАЛО ФИКСА #1: ЛОГИРОВАНИЕ DIFF ===
+                                            if args.log_diffs:
+                                                try:
+                                                    with open(args.log_diffs, "a", encoding="utf-8") as f:
+                                                        f.write(f"\n--- DIFF FOR {js_url} ---\n")
+                                                        f.write(diff)
+                                                        f.write("\n--- END DIFF ---\n")
+                                                except Exception as log_e:
+                                                    print(f"\n[!] Failed to write to diff log file: {log_e}", file=sys.stderr)
+                                            # === КОНЕЦ ФИКСА #1 ===
+                                            
+                                            ai_result = await send_diff_to_ai(session, diff, js_url, args)
+                                            # ... остальная логика ...
                             if ai_result and ai_result.get("signals_found"):
                                 for signal in ai_result["signals_found"]:
                                     llm_analysis = signal.get("llm_analysis", {})
@@ -2096,6 +2122,7 @@ def build_parser():
     p.add_argument("--delay", type=int, default=1, help="Delay in seconds between scans in continuous mode.")
     p.add_argument("-pc", "--notify-provider-config", help="Path to the notify provider-config file (optional).")
     p.add_argument("--debug", action="store_true", help="Enable verbose debug logging and file output.")
+    p.add_argument("--log-diffs", type=str, help="File path to log all generated diffs (optional).")
     return p
 
 def main():
