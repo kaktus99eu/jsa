@@ -99,6 +99,26 @@ class SessionManager:
         else:
             await self.r.set(f"session:{domain}", json.dumps(session_data), ex=expires_in_days * 86400)
         print(f"[✅] Session saved for {domain} (expires in {expires_in_days} days)")
+
+    async def update_session(self, session: DomainSession):
+        """
+        Обновляет данные сессии (куки, last_validated), но сохраняет исходный TTL.
+        """
+        session_data = {
+            'cookies': session.cookies,
+            'created_at': session.created_at,
+            'expires_at': session.expires_at,
+            'last_validated': time.time(),
+            'auto_refresh_token': session.auto_refresh_token,
+            'status': 'active'
+        }
+        if self.cipher:
+            encrypted = self.cipher.encrypt(json.dumps(session_data).encode())
+            await self.r.set(f"session:{session.domain}", encrypted, keepttl=True)
+        else:
+            await self.r.set(f"session:{session.domain}", json.dumps(session_data), keepttl=True)
+        
+        print(f"[🔄] Session for '{session.domain}' was refreshed with new cookies.")
     
     async def get_session(self, domain: str) -> Optional[DomainSession]:
         """
@@ -636,29 +656,13 @@ class SmartHeaders:
             headers['sec-ch-ua-platform'] = '"Windows"'
         return headers
     
-# --- Вставьте этот метод в класс SessionManager в файле js_monitoring_v14.py ---
-
-    async def update_session(self, session: DomainSession):
-        """
-        Обновляет данные сессии (куки, last_validated), но сохраняет исходный TTL.
-        """
-        session_data = {
-            'cookies': session.cookies,
-            'created_at': session.created_at,
-            'expires_at': session.expires_at,
-            'last_validated': time.time(), # Обновляем время последней проверки
-            'auto_refresh_token': session.auto_refresh_token,
-            'status': 'active'
-        }
-        # Используем keepttl=True, чтобы не сбрасывать общий срок жизни сессии (30 дней)
-        if self.cipher:
-            encrypted = self.cipher.encrypt(json.dumps(session_data).encode())
-            await self.r.set(f"session:{session.domain}", encrypted, keepttl=True)
-        else:
-            await self.r.set(f"session:{session.domain}", json.dumps(session_data), keepttl=True)
-        
-        # Добавляем лог, чтобы видеть, что обновление произошло
-        print(f"[🔄] Session for '{session.domain}' was refreshed with new cookies.")
+    def update_session(self, response_headers: dict, url: str):
+        """Обновляет состояние сессии"""
+        self.last_referer = url
+        if 'Set-Cookie' in response_headers:
+            cookie_value = response_headers['Set-Cookie'].split(';')[0]
+            cookie_name, cookie_val = cookie_value.split('=', 1)
+            self.session_cookies[cookie_name] = cookie_val
             
 class WAFDetector:
     """Определяет типы WAF блокировок"""
